@@ -8,17 +8,18 @@
 #include <SDL3/SDL_main.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <random>
 #include <utility>
 
 constexpr unsigned int WIDTH = 900;
 constexpr unsigned int HEIGHT = 600;
+constexpr float PI = 3.14159265359;
 
-constexpr float RECT_HEIGHT = 4.0f;
-constexpr float RECT_WIDTH = 4.0f;
+constexpr float RECT_HEIGHT = 5.0f;
+constexpr float RECT_WIDTH = 5.0f;
 constexpr float SPEED = 3.5f;
-
 
 struct Color {
   Uint8 r;
@@ -27,19 +28,75 @@ struct Color {
   Uint8 a;
 };
 
-enum class Direction {
-  Right,
-  Left,
-  Up,
-  Down
+class Walker {
+private:
+  struct Velocity {
+    float vx = 0;
+    float vy = 0;
+  };
+  SDL_FRect rect;
+  Color color;
+  Velocity v;
+  static inline int num_dir;
+
+  SDL_Texture *ptrail;
+  SDL_Renderer *prenderer;
+  // static std::vector<std::pair<int, int>> visited;
+  // visited.push_back({static_cast<int>(rect1.x), static_cast<int>(rect1.y)});
+
+  inline static std::mt19937 rng{
+      static_cast<unsigned>(
+          std::chrono::high_resolution_clock::now().time_since_epoch().count())};
+
+  static float RanRad() {
+    static std::uniform_int_distribution<int> dist(1, num_dir);
+    return static_cast<float>(dist(rng)) / num_dir * 2 * PI;
+  }
+
+  void UpdateVelocity() {
+    auto rad = RanRad();
+    v.vx = SPEED * std::cos(rad);
+    v.vy = SPEED * std::sin(rad);
+  }
+
+public:
+  Walker(const Color &color)
+      : rect{(WIDTH - RECT_WIDTH) / 2, (HEIGHT - RECT_HEIGHT) / 2, RECT_WIDTH, RECT_HEIGHT}
+      , color(color) {}
+
+  Walker(int num_dir, const Color &color, SDL_Renderer *renderer, SDL_Texture *trail)
+      : prenderer(renderer)
+      , ptrail(trail)
+      , rect{(WIDTH - RECT_WIDTH) / 2, (HEIGHT - RECT_HEIGHT) / 2, RECT_WIDTH, RECT_HEIGHT}
+      , color(color) {
+    Walker::num_dir = num_dir;
+  }
+
+  const SDL_FRect &GetRect() const { return rect; }
+  const Color &GetColor() const { return color; }
+  const Velocity &GetVelocity() const { return v; }
+
+  void MoveWalker() {
+    float prev_x = rect.x;
+    float prev_y = rect.y;
+
+    rect.x += v.vx;
+    rect.y += v.vy;
+
+    SDL_SetRenderTarget(prenderer, ptrail);
+    SDL_SetRenderDrawColor(prenderer, color.r, color.g, color.b, color.a);
+    SDL_RenderLine(prenderer, prev_x, prev_y, rect.x, rect.y);
+
+    UpdateVelocity();
+  }
 };
 
-Direction RanDir();
-void MoveRect(SDL_FRect &rect);
-void UpdateVisited(std::vector<std::pair<int, int>> &, SDL_FRect &);
+// void UpdateVisited(std::vector<std::pair<int, int>> &, SDL_FRect &);
 
 int main(int argc, char *argv[]) {
   std::cout << "Program's starting...\n";
+
+  const int num_dir = 4;
 
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     std::cerr << "SDL initialization failed: " << SDL_GetError() << '\n';
@@ -59,50 +116,18 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  SDL_Texture *ptrail1 = SDL_CreateTexture(prenderer, SDL_PIXELFORMAT_RGBA8888,
-                                           SDL_TEXTUREACCESS_TARGET, WIDTH, HEIGHT);
-  if (!ptrail1) {
+  SDL_Texture *ptrail = SDL_CreateTexture(prenderer, SDL_PIXELFORMAT_RGBA8888,
+                                          SDL_TEXTUREACCESS_TARGET, WIDTH, HEIGHT);
+  if (!ptrail) {
     std::cerr << "Trail texture failed to initialize" << SDL_GetError() << '\n';
     return 1;
   }
 
-  SDL_Texture *ptrail2 = SDL_CreateTexture(prenderer, SDL_PIXELFORMAT_RGBA8888,
-                                           SDL_TEXTUREACCESS_TARGET, WIDTH, HEIGHT);
-  if (!ptrail2) {
-    std::cerr << "Trail texture failed to initialize" << SDL_GetError() << '\n';
-    return 1;
-  }
-
-  SDL_Texture *ptrail3 = SDL_CreateTexture(prenderer, SDL_PIXELFORMAT_RGBA8888,
-                                           SDL_TEXTUREACCESS_TARGET, WIDTH, HEIGHT);
-  if (!ptrail3) {
-    std::cerr << "Trail texture failed to initialize" << SDL_GetError() << '\n';
-    return 1;
-  }
-
-  SDL_SetRenderTarget(prenderer, ptrail1);
+  SDL_SetRenderTarget(prenderer, ptrail);
   SDL_SetRenderDrawColor(prenderer, 0, 0, 0, 0); // transparent texture bg
   SDL_RenderClear(prenderer);
 
-  SDL_SetRenderTarget(prenderer, ptrail2);
-  SDL_SetRenderDrawColor(prenderer, 0, 0, 0, 00); // transparent texture bg
-  SDL_RenderClear(prenderer);
-
-  SDL_SetRenderTarget(prenderer, ptrail3);
-  SDL_SetRenderDrawColor(prenderer, 0, 0, 0, 00); // transparent texture bg
-  SDL_RenderClear(prenderer);
-
-  SDL_FRect rect1{(WIDTH - RECT_WIDTH) / 2, (HEIGHT - RECT_HEIGHT) / 2, RECT_WIDTH, RECT_HEIGHT};
-  Color color_rect1{255, 0, 0, 255};
-
-  SDL_FRect rect2{(WIDTH - RECT_WIDTH) / 2, (HEIGHT - RECT_HEIGHT) / 2, RECT_WIDTH, RECT_HEIGHT};
-  Color color_rect2{0, 255, 0, 255};
-
-  SDL_FRect rect3{(WIDTH - RECT_WIDTH) / 2, (HEIGHT - RECT_HEIGHT) / 2, RECT_WIDTH, RECT_HEIGHT};
-  Color color_rect3{0, 0, 255, 255};
-
-  std::vector<std::pair<int, int>> visited;
-  visited.push_back({static_cast<int>(rect1.x), static_cast<int>(rect1.y)});
+  Walker w1(num_dir, (Color){255, 0, 0, 255}, prenderer, ptrail);
 
   SDL_Event event;
   bool exitted = false;
@@ -115,87 +140,22 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    SDL_SetRenderTarget(prenderer, ptrail1);
-    if (std::find(visited.begin(), visited.end(), std::make_pair(static_cast<int>(rect1.x), static_cast<int>(rect1.y))) != visited.end()) {
-      SDL_SetRenderDrawColor(prenderer, color_rect1.r, color_rect1.g, color_rect1.b, color_rect1.a);
-    } else {
-      SDL_SetRenderDrawColor(prenderer, color_rect1.r, color_rect1.g, color_rect1.b, 200);
-    }
-    SDL_RenderFillRect(prenderer, &rect1);
-
-    SDL_SetRenderTarget(prenderer, ptrail2);
-    if (std::find(visited.begin(), visited.end(), std::make_pair(static_cast<int>(rect2.x), static_cast<int>(rect2.y))) != visited.end()) {
-      SDL_SetRenderDrawColor(prenderer, color_rect2.r, color_rect2.g, color_rect2.b, color_rect2.a);
-    } else {
-      SDL_SetRenderDrawColor(prenderer, color_rect2.r, color_rect2.g, color_rect2.b, 200);
-    }
-    SDL_RenderFillRect(prenderer, &rect2);
-
-    SDL_SetRenderTarget(prenderer, ptrail3);
-    if (std::find(visited.begin(), visited.end(), std::make_pair(static_cast<int>(rect3.x), static_cast<int>(rect3.y))) != visited.end()) {
-      SDL_SetRenderDrawColor(prenderer, color_rect3.r, color_rect3.g, color_rect3.b, color_rect3.a);
-    } else {
-      SDL_SetRenderDrawColor(prenderer, color_rect3.r, color_rect3.g, color_rect3.b, 200);
-    }
-    SDL_RenderFillRect(prenderer, &rect3);
-
     SDL_SetRenderTarget(prenderer, NULL);
-
     SDL_SetRenderDrawColor(prenderer, 255, 255, 255, 255);
     SDL_RenderClear(prenderer);
 
     // SDL_SetRenderDrawColor(prenderer, color_rect.r, color_rect.g, color_rect.b, color_rect.a);
-    SDL_RenderTexture(prenderer, ptrail1, NULL, NULL);
-    SDL_RenderTexture(prenderer, ptrail2, NULL, NULL);
-    SDL_RenderTexture(prenderer, ptrail3, NULL, NULL);
+    SDL_RenderTexture(prenderer, ptrail, NULL, NULL);
 
     SDL_RenderPresent(prenderer);
 
-    MoveRect(rect1);
-    UpdateVisited(visited, rect1);
-    MoveRect(rect2);
-    UpdateVisited(visited, rect2);
-    MoveRect(rect3);
-    UpdateVisited(visited, rect3);
+    w1.MoveWalker();
+    // UpdateVisited(visited, rect1);
 
     SDL_Delay(20);
   }
 }
 
-void MoveRect(SDL_FRect &rect) {
-  switch (RanDir()) {
-  case Direction::Right:
-    rect.x += RECT_WIDTH;
-    break;
-  case Direction::Left:
-    rect.x -= RECT_WIDTH;
-    break;
-  case Direction::Up:
-    rect.y -= RECT_HEIGHT;
-    break;
-  case Direction::Down:
-    rect.y += RECT_HEIGHT;
-    break;
-  }
-}
-
-Direction RanDir() {
-  static std::mt19937 rng(std::chrono::high_resolution_clock::now().time_since_epoch().count());
-  static std::uniform_int_distribution<int> dist(1, 4);
-  switch (dist(rng)) {
-  case 1:
-    return Direction::Right;
-  case 2:
-    return Direction::Left;
-  case 3:
-    return Direction::Up;
-  case 4:
-    return Direction::Down;
-  }
-  std::cerr << "Impossible case: dist should only generate 1 -> 4\n";
-  return Direction::Right;
-}
-
-void UpdateVisited(std::vector<std::pair<int, int>> &visited, SDL_FRect &rect) {
-  visited.push_back({static_cast<int>(rect.x), static_cast<int>(rect.y)});
-}
+// void UpdateVisited(std::vector<std::pair<int, int>> &visited, SDL_FRect &rect) {
+//   visited.push_back({static_cast<int>(rect.x), static_cast<int>(rect.y)});
+// }
